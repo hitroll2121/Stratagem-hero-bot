@@ -1,11 +1,5 @@
 import os
 from dotenv import load_dotenv
-
-load_dotenv()
-
-Discord_token = os.getenv('TOKEN')
-
-from typing import Optional
 import discord
 import time
 import asyncio
@@ -14,6 +8,10 @@ import re
 import copy
 import json
 from discord import app_commands
+
+load_dotenv()
+
+Discord_token = os.getenv('TOKEN')
 
 global loop
 
@@ -228,7 +226,7 @@ def sort_strats(e):
 
 stratagme_names.sort(key=sort_strats)
 
-print(len(stratagme_names))
+#print(len(stratagme_names))
 
 MY_GUILD = discord.Object(id=0)  # replace with your guild id
 
@@ -255,12 +253,13 @@ class MyClient(discord.Client):
 
     async def on_message(self, message):
         print(message.content)
-        print(re.sub("[w|a|s|d]", "", message.content.lower()))
+        #print(re.sub("[w|a|s|d]", "", message.content.lower()))
         if re.sub("[w|a|s|d]", "", message.content) == "":
             if message.author.id in events.keys():
                 message_text = copy.deepcopy(message.content).lower()
                 messages[message.author.id] = message_text
                 events[message.author.id].set()
+                print("deleting valid msg")
                 await message.delete()
 
 
@@ -293,20 +292,6 @@ async def hello(interaction: discord.Interaction):
     await interaction.response.send_message(f'Hi, {interaction.user.mention}')
 
 
-@client.tree.command()
-async def todo(interaction: discord.Interaction):
-    await interaction.response.send_message("""
-
-
-
-
-delete message if wrong/correct
-continue system after you get 10 5 sec break then new 10 stratagems
-fancy embed
-icons (this will have to be done manually and will be a nightmare)
-add mission objective stratagem
-
-    """)
 
 
 @client.tree.command()
@@ -330,8 +315,14 @@ async def leaderboard(interaction: discord.Interaction):
 
 @client.tree.command()
 async def stratagem_hero_start(interaction: discord.Interaction):
-    await interaction.response.send_message(f'Hi, {interaction.user.mention}')
-    session = stratagem_hero(interaction)
+    await interaction.response.send_message(f'{interaction.user.mention} shift click the message to open the channel')
+
+    first_message = await interaction.original_response()
+    thread = await first_message.create_thread(name="helldivers stratagem game",
+                                                     reason=None, slowmode_delay=None)
+    await thread.add_user(interaction.user)
+    #await thread.send(f'Hi, {interaction.user.mention}')
+    session = stratagem_hero(interaction, thread)
     asyncio.create_task(session.main_game_loop())
 
 
@@ -340,9 +331,9 @@ def rand_sort(num, mult):
 
 
 class stratagem_hero:
-    def __init__(self, interaction):
+    def __init__(self, interaction, thread):
         self.discord_id = id
-
+        self.thread = thread
         self.up = ":arrow_up_small:"
         self.left = ":arrow_backward:"
         self.right = ":arrow_forward:"
@@ -363,12 +354,13 @@ class stratagem_hero:
 
     async def main_game_loop(self):
         interaction = self.interaction
-        print("started main game loop")
+        thread = self.thread
+        #print("started main game loop")
         event = asyncio.Event()
         events[interaction.user.id] = event
-        await interaction.edit_original_response(
-            content=f'Hi, {interaction.user.mention} starting <t:{int(time.time() + 3)}:R>')
-        await asyncio.sleep(3)
+        message = await thread.send(
+            content=f'Hi, {interaction.user.mention} starting <t:{int(time.time() + 5)}:R>')
+        await asyncio.sleep(5)
         while True:
             end_time = int(time.time() + 30 - (self.sets))
             old = []
@@ -394,17 +386,17 @@ Points: {self.points}
 times up in <t:{end_time}:R>
                                 """
                 embed = discord.Embed(title=f"{stratagme_names[random_strat]}", description=content_string)
-                print(
-                    f"https://raw.githubusercontent.com/hitroll2121/Stratagem-hero-bot/main/all_strats_images/{stratagme_names[random_strat].replace(' ', '%20')}.png")
+
                 embed.set_thumbnail(
                     url=f"https://raw.githubusercontent.com/hitroll2121/Stratagem-hero-bot/main/all_strats_images/{stratagme_names[random_strat].replace(' ', '%20')}.png")
                 active_attempt = True
                 while active_attempt:
-                    await interaction.edit_original_response(embed=embed, content="")
+                    await message.edit(embed=embed, content="")
 
                     try:
                         await asyncio.wait_for(event.wait(), timeout=end_time - int(time.time()))
                     except asyncio.TimeoutError:
+                        await thread.delete()
                         await interaction.edit_original_response(content=f"times up points: {self.points}", embed=None)
                         return await self.reset_user()
                     event.clear()
@@ -420,13 +412,14 @@ times up in <t:{end_time}:R>
             self.sets += 1
             embed2 = discord.Embed(title=f"Set complete!",
                                    description=f"Starting next 10 <t:{int(time.time() + 10)}:R>\nPoints: {self.points}")
-            await interaction.edit_original_response(embed=embed2, content="")
+            await message.edit(embed=embed2, content="")
+
             await asyncio.sleep(10)
 
     async def reset_user(self):
         del (events[self.interaction.user.id])
-        name = self.interaction.user.name
-        discord_id = self.interaction.user.id
+        name = self.interaction.user.global_name
+        discord_id = str(self.interaction.user.id)
         if discord_id in bot_leaderboard.keys():
             if bot_leaderboard[discord_id][0] < self.points:
                 bot_leaderboard[discord_id][0] = self.points
